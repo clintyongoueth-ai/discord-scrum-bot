@@ -8,6 +8,8 @@ on:
 jobs:
   post-scrum:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Check out repo
@@ -18,8 +20,22 @@ jobs:
         with:
           node-version: 24
 
+      - name: Show Node version
+        run: |
+          node -v
+          npm -v
+
       - name: Install dependencies
         run: npm install
+
+      - name: Verify secrets exist
+        run: |
+          if [ -z "$DISCORD_BOT_TOKEN" ]; then echo "Missing DISCORD_BOT_TOKEN"; exit 1; fi
+          if [ -z "$DISCORD_FORUM_CHANNEL_ID" ]; then echo "Missing DISCORD_FORUM_CHANNEL_ID"; exit 1; fi
+          echo "Secrets look present"
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_FORUM_CHANNEL_ID: ${{ secrets.DISCORD_FORUM_CHANNEL_ID }}
 
       - name: Run scrum bot
         env:
