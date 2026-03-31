@@ -235,12 +235,14 @@ async function main() {
   const hour = Number(timeMap.hour);
   const minute = Number(timeMap.minute);
 
+  const forceRun = process.env.FORCE_RUN === "true";
+
   if (!isWeekday(weekday)) {
     console.log("It is a weekend, so no scrum thread was created.");
     return;
   }
 
-  if (hour !== 17 || minute > 5) {
+  if (!forceRun && (hour !== 17 || minute > 5)) {
     console.log("Not the 5 PM Chicago scrum window. Skipping.");
     return;
   }

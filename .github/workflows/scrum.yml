@@ -42,4 +42,5 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_FORUM_CHANNEL_ID: ${{ secrets.DISCORD_FORUM_CHANNEL_ID }}
           TIMEZONE: America/Chicago
+          FORCE_RUN: "false"
         run: node index.js
