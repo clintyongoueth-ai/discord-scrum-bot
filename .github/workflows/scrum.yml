@@ -3,7 +3,7 @@ name: Post Daily Scrum Thread
 on:
   workflow_dispatch:
   schedule:
-    - cron: "7 14 * * 1-5"
+    - cron: "0 22,23 * * 1-5"
 
 jobs:
   post-scrum:

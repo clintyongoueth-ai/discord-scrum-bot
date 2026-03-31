@@ -46,17 +46,112 @@ function buildThreadTitle() {
   return `(${month}/${day}/${year}) Scrum Meeting`;
 }
 
+function getDiscordTimestamp() {
+  const now = new Date();
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(now);
+
+  const map = {};
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      map[part.type] = part.value;
+    }
+  }
+
+  const year = Number(map.year);
+  const month = Number(map.month);
+  const day = Number(map.day);
+
+  const chicagoNow = new Date(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(now)
+  );
+
+  const januaryOffsetCheck = new Date(`${year}-01-15T17:00:00`);
+  const julyOffsetCheck = new Date(`${year}-07-15T17:00:00`);
+
+  const chicagoJan = new Date(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(januaryOffsetCheck)
+  );
+
+  const chicagoJul = new Date(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(julyOffsetCheck)
+  );
+
+  const isDstLike =
+    chicagoNow.getTimezoneOffset() === chicagoJul.getTimezoneOffset();
+
+  const utcHour = isDstLike ? 22 : 23; // 5 PM Chicago = 22 UTC in DST, 23 UTC otherwise
+
+  return Math.floor(Date.UTC(year, month - 1, day, utcHour, 0, 0) / 1000);
+}
+
 function buildScrumBody() {
-  return `How have you been recently?
+  const timestamp = getDiscordTimestamp();
 
-To-Do List
-What are you working on + what do you have next?
+  return `Slimera Stand Up Meeting NotePad <t:${timestamp}:f> 🚀  
+<@&1101598462706991125> <@&1008970348282253312>
 
-Any minor / major blocks in the next 2 weeks?
+# Sprint Focus: Stability + Content Output
 
-Comfort with your work?
+**Game Goal:**  
+- Big Hit List (Mass quick updates)
 
-Questions to anyone else?`;
+**Why:**  
+Increase baseline CCU + move toward sustainability before full Algo push
+
+**Success Metrics:**  
+- CCU increase  
+- 7 day play days per user signal increase
+- 7 day intentional co-play days per user
+- Retention lift (D1 if possible)  
+- No major bugs post-release  
+
+**Development Priorities:**  
+- Finish biome update
+- First 5 minutes
+- Remove any progression blockers
+- Reduce friction / confusion  
+- Fix high-impact bugs  
+
+**Community & Communication Goal:**  
+Strengthen consistency + player trust  
+- Daily/recurring updates  
+- Clear roadmap communication  
+- Feedback loop visibility  
+- Patch notes clarity  
+- Dev-progress storytelling  
+
+**Why:**  
+Build long-term loyalty + make players feel involved in the growth of Slimera`;
 }
 
 async function discordGet(url) {
@@ -123,8 +218,30 @@ async function threadAlreadyExists(threadName) {
 async function main() {
   const { weekday } = getDateParts();
 
+  const chicagoTimeParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const timeMap = {};
+  for (const part of chicagoTimeParts) {
+    if (part.type !== "literal") {
+      timeMap[part.type] = part.value;
+    }
+  }
+
+  const hour = Number(timeMap.hour);
+  const minute = Number(timeMap.minute);
+
   if (!isWeekday(weekday)) {
     console.log("It is a weekend, so no scrum thread was created.");
+    return;
+  }
+
+  if (hour !== 17 || minute > 5) {
+    console.log("Not the 5 PM Chicago scrum window. Skipping.");
     return;
   }
 
