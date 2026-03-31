@@ -5,7 +5,7 @@ const DISCORD_FORUM_CHANNEL_ID = process.env.DISCORD_FORUM_CHANNEL_ID;
 const TIMEZONE = process.env.TIMEZONE || "America/Chicago";
 
 if (!DISCORD_BOT_TOKEN || !DISCORD_FORUM_CHANNEL_ID) {
-  console.error("Missing DISCORD_BOT_TOKEN or DISCORD_FORUM_CHANNEL_ID in .env");
+  console.error("Missing DISCORD_BOT_TOKEN or DISCORD_FORUM_CHANNEL_ID in environment");
   process.exit(1);
 }
 
@@ -35,10 +35,6 @@ function getDateParts() {
     year: map.year,
     weekday: map.weekday,
   };
-}
-
-function isWeekday(weekday) {
-  return ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday);
 }
 
 function buildThreadTitle() {
@@ -77,21 +73,7 @@ function getDiscordTimestamp() {
     }).format(now)
   );
 
-  const januaryOffsetCheck = new Date(`${year}-01-15T17:00:00`);
-  const julyOffsetCheck = new Date(`${year}-07-15T17:00:00`);
-
-  const chicagoJan = new Date(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago",
-      hour12: false,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(januaryOffsetCheck)
-  );
+  const julyOffsetCheck = new Date(`${year}-07-15T18:00:00`);
 
   const chicagoJul = new Date(
     new Intl.DateTimeFormat("en-US", {
@@ -109,9 +91,13 @@ function getDiscordTimestamp() {
   const isDstLike =
     chicagoNow.getTimezoneOffset() === chicagoJul.getTimezoneOffset();
 
-  const utcHour = isDstLike ? 22 : 23; // 5 PM Chicago = 22 UTC in DST, 23 UTC otherwise
+  const utcHour = isDstLike ? 23 : 0; // 6 PM Chicago = 23 UTC in DST, 00 UTC next day in standard time
 
-  return Math.floor(Date.UTC(year, month - 1, day, utcHour, 0, 0) / 1000);
+  const utcDate = utcHour === 0
+    ? Date.UTC(year, month - 1, day + 1, 0, 0, 0)
+    : Date.UTC(year, month - 1, day, utcHour, 0, 0);
+
+  return Math.floor(utcDate / 1000);
 }
 
 function buildScrumBody() {
@@ -179,9 +165,9 @@ async function createForumThread(name, content) {
   const url = `https://discord.com/api/v10/channels/${DISCORD_FORUM_CHANNEL_ID}/threads`;
 
   const body = {
-    name: name,
+    name,
     message: {
-      content: content
+      content
     },
     auto_archive_duration: 1440
   };
@@ -212,41 +198,10 @@ async function threadAlreadyExists(threadName) {
   const data = await discordGet(url);
 
   const threads = data.threads || [];
-  return threads.some(thread => thread.name === threadName);
+  return threads.some((thread) => thread.name === threadName);
 }
 
 async function main() {
-  const { weekday } = getDateParts();
-
-  const chicagoTimeParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TIMEZONE,
-    hour: "numeric",
-    minute: "numeric",
-    hour12: false,
-  }).formatToParts(new Date());
-
-  const timeMap = {};
-  for (const part of chicagoTimeParts) {
-    if (part.type !== "literal") {
-      timeMap[part.type] = part.value;
-    }
-  }
-
-  const hour = Number(timeMap.hour);
-  const minute = Number(timeMap.minute);
-
-  const forceRun = process.env.FORCE_RUN === "true";
-
-  if (!isWeekday(weekday)) {
-    console.log("It is a weekend, so no scrum thread was created.");
-    return;
-  }
-
-  if (!forceRun && (hour !== 17 || minute > 5)) {
-    console.log("Not the 5 PM Chicago scrum window. Skipping.");
-    return;
-  }
-
   const title = buildThreadTitle();
 
   const exists = await threadAlreadyExists(title);

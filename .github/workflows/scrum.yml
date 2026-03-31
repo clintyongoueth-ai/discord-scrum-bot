@@ -3,7 +3,8 @@ name: Post Daily Scrum Thread
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 22,23 * * 1-5"
+    - cron: "0 18 * * 0-4"
+      timezone: "America/Chicago"
 
 jobs:
   post-scrum:
@@ -19,11 +20,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Show Node version
-        run: |
-          node -v
-          npm -v
 
       - name: Install dependencies
         run: npm install
@@ -42,5 +38,4 @@ jobs:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_FORUM_CHANNEL_ID: ${{ secrets.DISCORD_FORUM_CHANNEL_ID }}
           TIMEZONE: America/Chicago
-          FORCE_RUN: "false"
         run: node index.js
