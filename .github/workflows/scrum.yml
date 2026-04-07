@@ -3,8 +3,10 @@ name: Post Daily Scrum Thread
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 18 * * 0-4"
-      timezone: "America/Chicago"
+    # 18:30 America/Chicago while CST (UTC-6)
+    - cron: "30 0 * * 1-5"
+    # 18:30 America/Chicago while CDT (UTC-5)
+    - cron: "30 23 * * 0-4"
 
 jobs:
   post-scrum:
@@ -24,7 +26,22 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Guard schedule to 6:30 PM America/Chicago (Sun-Thu)
+        id: chicago-window
+        run: |
+          CHICAGO_DOW=$(TZ=America/Chicago date +%u)
+          CHICAGO_HM=$(TZ=America/Chicago date +%H:%M)
+
+          if [ "$CHICAGO_DOW" -ge 1 ] && [ "$CHICAGO_DOW" -le 5 ] && [ "$CHICAGO_HM" = "18:30" ]; then
+            echo "run_now=true" >> "$GITHUB_OUTPUT"
+            echo "In allowed window: Sunday-Thursday 6:30 PM America/Chicago"
+          else
+            echo "run_now=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping. Current America/Chicago: DOW=$CHICAGO_DOW TIME=$CHICAGO_HM"
+          fi
+
       - name: Verify secrets exist
+        if: steps.chicago-window.outputs.run_now == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           if [ -z "$DISCORD_BOT_TOKEN" ]; then echo "Missing DISCORD_BOT_TOKEN"; exit 1; fi
           if [ -z "$DISCORD_FORUM_CHANNEL_ID" ]; then echo "Missing DISCORD_FORUM_CHANNEL_ID"; exit 1; fi
@@ -34,6 +51,7 @@ jobs:
           DISCORD_FORUM_CHANNEL_ID: ${{ secrets.DISCORD_FORUM_CHANNEL_ID }}
 
       - name: Run scrum bot
+        if: steps.chicago-window.outputs.run_now == 'true' || github.event_name == 'workflow_dispatch'
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_FORUM_CHANNEL_ID: ${{ secrets.DISCORD_FORUM_CHANNEL_ID }}

@@ -9,18 +9,20 @@ if (!DISCORD_BOT_TOKEN || !DISCORD_FORUM_CHANNEL_ID) {
   process.exit(1);
 }
 
-function getDateParts() {
-  const now = new Date();
-
+function getZonedDateParts(date = new Date(), timeZone = TIMEZONE) {
   const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: TIMEZONE,
-    year: "2-digit",
+    timeZone,
+    year: "numeric",
     month: "numeric",
     day: "numeric",
     weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
   });
 
-  const parts = formatter.formatToParts(now);
+  const parts = formatter.formatToParts(date);
   const map = {};
 
   for (const part of parts) {
@@ -30,79 +32,98 @@ function getDateParts() {
   }
 
   return {
-    month: map.month,
-    day: map.day,
-    year: map.year,
+    month: Number(map.month),
+    day: Number(map.day),
+    year: Number(map.year),
     weekday: map.weekday,
+    hour: Number(map.hour),
+    minute: Number(map.minute),
+    second: Number(map.second),
   };
 }
 
-function buildThreadTitle() {
-  const { month, day, year } = getDateParts();
-  return `(${month}/${day}/${year}) Scrum Meeting`;
-}
+function getOffsetMinutesAt(date, timeZone) {
+  const tzName = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "shortOffset",
+  })
+    .formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value;
 
-function getDiscordTimestamp() {
-  const now = new Date();
-
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(now);
-
-  const map = {};
-  for (const part of parts) {
-    if (part.type !== "literal") {
-      map[part.type] = part.value;
-    }
+  if (!tzName || !tzName.startsWith("GMT")) {
+    throw new Error(`Unable to determine timezone offset for ${timeZone}`);
   }
 
-  const year = Number(map.year);
-  const month = Number(map.month);
-  const day = Number(map.day);
+  if (tzName === "GMT") return 0;
 
-  const chicagoNow = new Date(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago",
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(now)
-  );
+  const match = tzName.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/);
+  if (!match) {
+    throw new Error(`Unexpected timezone offset format: ${tzName}`);
+  }
 
-  const julyOffsetCheck = new Date(`${year}-07-15T18:00:00`);
-
-  const chicagoJul = new Date(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago",
-      hour12: false,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(julyOffsetCheck)
-  );
-
-  const isDstLike =
-    chicagoNow.getTimezoneOffset() === chicagoJul.getTimezoneOffset();
-
-  const utcHour = isDstLike ? 23 : 0; // 6 PM Chicago = 23 UTC in DST, 00 UTC next day in standard time
-
-  const utcDate = utcHour === 0
-    ? Date.UTC(year, month - 1, day + 1, 0, 0, 0)
-    : Date.UTC(year, month - 1, day, utcHour, 0, 0);
-
-  return Math.floor(utcDate / 1000);
+  const sign = match[1] === "+" ? 1 : -1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3] || "0");
+  return sign * (hours * 60 + minutes);
 }
 
-function buildScrumBody() {
-  const timestamp = getDiscordTimestamp();
+function zonedLocalTimeToUnix({ year, month, day, hour, minute, second }, timeZone) {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
 
+  const offsetMinutes1 = getOffsetMinutesAt(new Date(utcGuess), timeZone);
+  let corrected = utcGuess - offsetMinutes1 * 60 * 1000;
+
+  const offsetMinutes2 = getOffsetMinutesAt(new Date(corrected), timeZone);
+  if (offsetMinutes2 !== offsetMinutes1) {
+    corrected = utcGuess - offsetMinutes2 * 60 * 1000;
+  }
+
+  return Math.floor(corrected / 1000);
+}
+
+function getNextBusinessDayDate(timeZone = TIMEZONE) {
+  const { year, month, day } = getZonedDateParts(new Date(), timeZone);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  do {
+    date.setUTCDate(date.getUTCDate() + 1);
+  } while (date.getUTCDay() === 0 || date.getUTCDay() === 6);
+
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
+function getMeetingContext(timeZone = TIMEZONE) {
+  const meetingDate = getNextBusinessDayDate(timeZone);
+  const unixTimestamp = zonedLocalTimeToUnix(
+    {
+      year: meetingDate.year,
+      month: meetingDate.month,
+      day: meetingDate.day,
+      hour: 17,
+      minute: 0,
+      second: 0,
+    },
+    timeZone
+  );
+
+  const meetingDateParts = getZonedDateParts(new Date(unixTimestamp * 1000), timeZone);
+  return {
+    meetingDate,
+    meetingDateParts,
+    unixTimestamp,
+  };
+}
+
+function buildThreadTitle(meetingDate) {
+  const shortYear = String(meetingDate.year).slice(-2);
+  return `(${meetingDate.month}/${meetingDate.day}/${shortYear}) Scrum Meeting`;
+}
+
+function buildScrumBody(timestamp) {
   return `Slimera Stand Up Meeting NotePad <t:${timestamp}:f> 🚀  
 <@&1101598462706991125> <@&1008970348282253312>
 
@@ -138,6 +159,27 @@ Strengthen consistency + player trust
 
 **Why:**  
 Build long-term loyalty + make players feel involved in the growth of Slimera`;
+}
+
+function buildExampleScrumNotesBody() {
+  return `# Example Scrum Notes
+
+**How you been recently?**
+- 
+
+**To-Do List**
+*What your working + what you have next*
+- 
+
+**Any minor / major blocks in THE NEXT 2 __WEEKS__?**
+- 
+
+**Comfort with your work?**
+-
+
+-----------------------------------
+**Questions to Anyone else?**
+-`;
 }
 
 async function discordGet(url) {
@@ -191,6 +233,31 @@ async function createForumThread(name, content) {
   }
 
   console.log("Created scrum thread successfully:", data.id);
+  return data;
+}
+
+async function postThreadMessage(threadId, content) {
+  const url = `https://discord.com/api/v10/channels/${threadId}/messages`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bot ${DISCORD_BOT_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ content })
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error("Failed to post example scrum notes message.");
+    console.error("Status:", response.status);
+    console.error("Response:", data);
+    process.exit(1);
+  }
+
+  console.log("Posted example scrum notes message:", data.id);
 }
 
 async function threadAlreadyExists(threadName) {
@@ -202,7 +269,20 @@ async function threadAlreadyExists(threadName) {
 }
 
 async function main() {
-  const title = buildThreadTitle();
+  const now = new Date();
+  const nowParts = getZonedDateParts(now, TIMEZONE);
+
+  const { meetingDate, meetingDateParts, unixTimestamp } = getMeetingContext(TIMEZONE);
+
+  console.log(
+    `Current local time (${TIMEZONE}): ${nowParts.weekday} ${nowParts.month}/${nowParts.day}/${nowParts.year} ${String(nowParts.hour).padStart(2, "0")}:${String(nowParts.minute).padStart(2, "0")}:${String(nowParts.second).padStart(2, "0")}`
+  );
+  console.log(
+    `Computed target meeting datetime (${TIMEZONE}): ${meetingDateParts.weekday} ${meetingDate.month}/${meetingDate.day}/${meetingDate.year} 17:00:00`
+  );
+  console.log(`Final Discord epoch: ${unixTimestamp}`);
+
+  const title = buildThreadTitle(meetingDate);
 
   const exists = await threadAlreadyExists(title);
   if (exists) {
@@ -210,7 +290,8 @@ async function main() {
     return;
   }
 
-  await createForumThread(title, buildScrumBody());
+  const createdThread = await createForumThread(title, buildScrumBody(unixTimestamp));
+  await postThreadMessage(createdThread.id, buildExampleScrumNotesBody());
 }
 
 main().catch((err) => {
